@@ -3,7 +3,7 @@ Write-Host "🕵️‍♂️ INICIANDO ESCÁNER DE MEMORIA CON VIRUSTOTAL API...
 Write-Host "========================================================" -ForegroundColor DarkGray
 
 # --- CONFIGURACIÓN ---
-$ApiKey = "TU_API_KEY_AQUI"  # <--- Pon tu llave de VirusTotal aquí
+$ApiKey = "808766d0d632c4f596de2abac41993cfffed00f9910ef4135bd57daf91d62758"  
 $Headers = @{ "x-apikey" = $ApiKey }
 
 # 1. Filtro Inteligente: Solo buscar procesos que se ejecuten desde la carpeta del Usuario (C:\Users\...)
@@ -49,4 +49,5 @@ foreach ($Proceso in $ProcesosSospechosos) {
     }
 }
 Write-Host "========================================================" -ForegroundColor DarkGray
+
 Write-Host "🕵️‍♂️ ESCANEO FINALIZADO." -ForegroundColor Cyan
