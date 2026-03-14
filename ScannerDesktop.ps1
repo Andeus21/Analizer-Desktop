@@ -1,66 +1,84 @@
 Clear-Host
-Write-Host "🕵️‍♂️ INICIANDO ESCÁNER DE MEMORIA AVANZADO (VT API)..." -ForegroundColor Cyan
-Write-Host "========================================================" -ForegroundColor DarkGray
 
-# --- CONFIGURACIÓN ---
-$ApiKey = "808766d0d632c4f596de2abac41993cfffed00f9910ef4135bd57daf91d62758"  # ¡Pon tu nueva llave generada!
-$Headers = @{ "x-apikey" = $ApiKey }
+$Banner = @"
+ █████╗ ███╗   ██╗██████╗ ███████╗██╗   ██╗███████╗
+██╔══██╗████╗  ██║██╔══██╗██╔════╝██║   ██║██╔════╝
+███████║██╔██╗ ██║██║  ██║█████╗  ██║   ██║███████╗
+██╔══██║██║╚██╗██║██║  ██║██╔══╝  ██║   ██║╚════██║
+██║  ██║██║ ╚████║██████╔╝███████╗╚██████╔╝███████║
+╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝                                 
+                      
+  ▀▄▀▄▀▄▀▄▀▄▀▄  ☣︎ INFECTION ☣︎  ▀▄▀▄▀▄▀▄▀▄▀▄▀                   
+"@
 
-# 1. Usar WMI para poder leer los "Argumentos" ocultos de los procesos
-$ProcesosWMI = Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like "*\Users\*" -or $_.Name -match "java" }
+Write-Host "=========================================================" -ForegroundColor DarkGray
+Write-Host "🕵️‍♂️ ESCÁNER GLOBAL DE MODS Y HACKS INICIADO..." -ForegroundColor Cyan
+Write-Host "Consultando API de Modrinth y realizando autopsias internas." -ForegroundColor DarkGray
+Write-Host "=========================================================`n" -ForegroundColor DarkGray
 
-if ($ProcesosWMI.Count -eq 0) {
-    Write-Host "[i] No hay procesos sospechosos corriendo." -ForegroundColor Green
-    exit
-}
+# 1. Zonas de cacería (Lugares típicos donde esconden hacks)
+$Carpetas = @(
+    "$env:USERPROFILE\Desktop",
+    "$env:USERPROFILE\Downloads",
+    "$env:USERPROFILE\Documents"
+)
 
-Write-Host "[!] Se encontraron $($ProcesosWMI.Count) procesos activos. Analizando Hashes y Argumentos..." -ForegroundColor Yellow
-Write-Host "--------------------------------------------------------" -ForegroundColor DarkGray
+# 2. Firmas internas de Hacks (Palabras clave que los hacks no pueden borrar)
+$PalabrasMaliciosas = @("doomsday", "vape", "koid", "manthe", "reach", "autoclicker", "raven", "b7", "kurumi", "client")
 
-foreach ($proc in $ProcesosWMI) {
-    try {
-        $RutaAAnalizar = $proc.ExecutablePath
-        $NombreProceso = $proc.Name
+# Herramienta nativa para abrir JARs
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$HacksAtrapados = 0
 
-        # 2. EL FILTRO ANTI-JAVA: Extraer el .jar malicioso de los argumentos
-        if ($NombreProceso -match "java" -and $proc.CommandLine -match "\.jar") {
-            # Buscar la ruta exacta del .jar usando Regex (ignora las comillas)
-            if ($proc.CommandLine -match '(?i)(?:")?([A-Za-z]:\\[^"]+\.jar)(?:")?') {
-                $RutaAAnalizar = $matches[1]
-                $NombreProceso = Split-Path $RutaAAnalizar -Leaf
-                Write-Host "[*] PASAJERO DETECTADO: Java está ejecutando -> $NombreProceso" -ForegroundColor Magenta
-            }
-        }
+foreach ($Carpeta in $Carpetas) {
+    # Buscar todos los archivos .jar en estas carpetas
+    $Archivos = Get-ChildItem -Path $Carpeta -Filter "*.jar" -Recurse -ErrorAction SilentlyContinue
 
-        # Evitar escanear carpetas vacías o rutas nulas
-        if (-not $RutaAAnalizar -or -not (Test-Path $RutaAAnalizar -PathType Leaf)) { continue }
+    foreach ($Archivo in $Archivos) {
+        try {
+            # Sacar la huella digital (Hash SHA1) que usa la API de Modrinth
+            $Hash = (Get-FileHash -Path $Archivo.FullName -Algorithm SHA1).Hash.ToLower()
 
-        # 3. Calcular la Huella Digital del Archivo Real
-        $Hash = (Get-FileHash -Path $RutaAAnalizar -Algorithm SHA256 -ErrorAction Stop).Hash
-        
-        # 4. Consultar a la API de VirusTotal
-        $Url = "https://www.virustotal.com/api/v3/files/$Hash"
-        $Respuesta = Invoke-RestMethod -Uri $Url -Headers $Headers -Method Get -ErrorAction SilentlyContinue
-        
-        if ($Respuesta) {
-            $Maliciosos = $Respuesta.data.attributes.last_analysis_stats.malicious
-            $Totales = $Respuesta.data.attributes.last_analysis_results.PSObject.Properties.Count
-            
-            if ($Maliciosos -gt 0) {
-                Write-Host "[PELIGRO] $NombreProceso (PID: $($proc.ProcessId))" -ForegroundColor Red
-                Write-Host "   => Ruta: $RutaAAnalizar" -ForegroundColor Red
-                Write-Host "   => Detecciones: $Maliciosos / $Totales antivirus lo marcan como Hack/Malware!`n" -ForegroundColor Red
+            # Consultar a la API de Modrinth
+            $Url = "https://api.modrinth.com/v2/version_file/$Hash?algorithm=sha1"
+            $Respuesta = Invoke-RestMethod -Uri $Url -Method Get -ErrorAction SilentlyContinue
+
+            if ($Respuesta) {
+                # Modrinth lo reconoce, es legal.
+                Write-Host "[LIMPIO] $($Archivo.Name) -> Mod oficial verificado por Modrinth." -ForegroundColor Green
             } else {
-                Write-Host "[LIMPIO] $NombreProceso -> 0/$Totales detecciones." -ForegroundColor Green
+                # Modrinth NO lo reconoce. Podría ser un mod de CurseForge, un mod privado... o un HACK.
+                Write-Host "[?] $($Archivo.Name) -> Archivo desconocido. Iniciando autopsia interna..." -ForegroundColor Yellow
+                
+                $Zip = [System.IO.Compression.ZipFile]::OpenRead($Archivo.FullName)
+                $EsHack = $false
+
+                # Leer el interior del .jar
+                foreach ($Entrada in $Zip.Entries) {
+                    foreach ($Palabra in $PalabrasMaliciosas) {
+                        if ($Entrada.FullName.ToLower() -match $Palabra) {
+                            $HacksAtrapados++
+                            Write-Host "   [!] HACK DETECTADO: El archivo finge ser un mod legal." -ForegroundColor Red
+                            Write-Host "       => Ruta: $($Archivo.FullName)" -ForegroundColor Red
+                            Write-Host "       => Evidencia: Contiene el código sospechoso '$($Entrada.FullName)'`n" -ForegroundColor Red
+                            $EsHack = $true
+                            break
+                        }
+                    }
+                    if ($EsHack) { break }
+                }
+                
+                $Zip.Dispose() # Cerrar el archivo
+
+                if (-not $EsHack) {
+                    Write-Host "   [i] Autopsia limpia. Parece un mod seguro no registrado en Modrinth.`n" -ForegroundColor DarkGray
+                }
             }
-        } else {
-            Write-Host "[?] $NombreProceso -> Archivo desconocido para VirusTotal (Posible Hack Privado o recién renombrado)." -ForegroundColor Yellow
+        } catch {
+            Write-Host "   [x] El archivo $($Archivo.Name) está bloqueado o en uso.`n" -ForegroundColor DarkRed
         }
-        
-        Start-Sleep -Seconds 15 
-    } catch {
-        # Ignorar errores de permisos
     }
 }
-Write-Host "========================================================" -ForegroundColor DarkGray
-Write-Host "🕵️‍♂️ ESCANEO FINALIZADO." -ForegroundColor Cyan
+
+Write-Host "=========================================================" -ForegroundColor DarkGray
+Write-Host "[i] Escaneo finalizado. $HacksAtrapados hacks camuflados encontrados." -ForegroundColor Cyan
