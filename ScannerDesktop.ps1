@@ -1,5 +1,5 @@
 # ====================================================================
-# ESCÁNER FORENSE V9 - ANDEUS TOXIC (CAZADOR DE INYECTORES)
+# ESCÁNER - Client Ilegales
 # ====================================================================
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -13,7 +13,7 @@ $Banner = @"
 ██║  ██║██║ ╚████║██████╔╝███████╗╚██████╔╝███████║
 ╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝                                 
                       
-  ▀▄▀▄▀▄▀▄▀▄▀▄  ☣︎ INFECTION (ANTI-INJECTOR) ☣︎  ▀▄▀▄▀▄▀▄▀▄▀▄▀                   
+  ▀▄▀▄▀▄▀▄▀▄▀▄  ☣︎ INFECTION ☣︎  ▀▄▀▄▀▄▀▄▀▄▀▄▀                   
 "@
 
 Write-Host $Banner -ForegroundColor Green
