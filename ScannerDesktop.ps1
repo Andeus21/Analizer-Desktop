@@ -1,28 +1,44 @@
 Clear-Host
-Write-Host "🕵️‍♂️ INICIANDO ESCÁNER DE MEMORIA CON VIRUSTOTAL API..." -ForegroundColor Cyan
+Write-Host "🕵️‍♂️ INICIANDO ESCÁNER DE MEMORIA AVANZADO (VT API)..." -ForegroundColor Cyan
 Write-Host "========================================================" -ForegroundColor DarkGray
 
 # --- CONFIGURACIÓN ---
-$ApiKey = "808766d0d632c4f596de2abac41993cfffed00f9910ef4135bd57daf91d62758"  
+$ApiKey = "808766d0d632c4f596de2abac41993cfffed00f9910ef4135bd57daf91d62758"  # ¡Pon tu nueva llave generada!
 $Headers = @{ "x-apikey" = $ApiKey }
 
-# 1. Filtro Inteligente: Solo buscar procesos que se ejecuten desde la carpeta del Usuario (C:\Users\...)
-$ProcesosSospechosos = Get-Process | Where-Object { $_.Path -like "*\Users\*" }
+# 1. Usar WMI para poder leer los "Argumentos" ocultos de los procesos
+$ProcesosWMI = Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like "*\Users\*" -or $_.Name -match "java" }
 
-if ($ProcesosSospechosos.Count -eq 0) {
-    Write-Host "[i] No hay procesos sospechosos corriendo en el espacio del usuario." -ForegroundColor Green
+if ($ProcesosWMI.Count -eq 0) {
+    Write-Host "[i] No hay procesos sospechosos corriendo." -ForegroundColor Green
     exit
 }
 
-Write-Host "[!] Se encontraron $($ProcesosSospechosos.Count) procesos activos en zonas de riesgo. Analizando Hashes..." -ForegroundColor Yellow
+Write-Host "[!] Se encontraron $($ProcesosWMI.Count) procesos activos. Analizando Hashes y Argumentos..." -ForegroundColor Yellow
 Write-Host "--------------------------------------------------------" -ForegroundColor DarkGray
 
-foreach ($Proceso in $ProcesosSospechosos) {
+foreach ($proc in $ProcesosWMI) {
     try {
-        # 2. Calcular la Huella Digital (Hash SHA-256)
-        $Hash = (Get-FileHash -Path $Proceso.Path -Algorithm SHA256 -ErrorAction Stop).Hash
+        $RutaAAnalizar = $proc.ExecutablePath
+        $NombreProceso = $proc.Name
+
+        # 2. EL FILTRO ANTI-JAVA: Extraer el .jar malicioso de los argumentos
+        if ($NombreProceso -match "java" -and $proc.CommandLine -match "\.jar") {
+            # Buscar la ruta exacta del .jar usando Regex (ignora las comillas)
+            if ($proc.CommandLine -match '(?i)(?:")?([A-Za-z]:\\[^"]+\.jar)(?:")?') {
+                $RutaAAnalizar = $matches[1]
+                $NombreProceso = Split-Path $RutaAAnalizar -Leaf
+                Write-Host "[*] PASAJERO DETECTADO: Java está ejecutando -> $NombreProceso" -ForegroundColor Magenta
+            }
+        }
+
+        # Evitar escanear carpetas vacías o rutas nulas
+        if (-not $RutaAAnalizar -or -not (Test-Path $RutaAAnalizar -PathType Leaf)) { continue }
+
+        # 3. Calcular la Huella Digital del Archivo Real
+        $Hash = (Get-FileHash -Path $RutaAAnalizar -Algorithm SHA256 -ErrorAction Stop).Hash
         
-        # 3. Consultar a la API de VirusTotal
+        # 4. Consultar a la API de VirusTotal
         $Url = "https://www.virustotal.com/api/v3/files/$Hash"
         $Respuesta = Invoke-RestMethod -Uri $Url -Headers $Headers -Method Get -ErrorAction SilentlyContinue
         
@@ -30,24 +46,21 @@ foreach ($Proceso in $ProcesosSospechosos) {
             $Maliciosos = $Respuesta.data.attributes.last_analysis_stats.malicious
             $Totales = $Respuesta.data.attributes.last_analysis_results.PSObject.Properties.Count
             
-            # 4. Mostrar el Veredicto
             if ($Maliciosos -gt 0) {
-                Write-Host "[PELIGRO] $($Proceso.Name) (PID: $($Proceso.Id))" -ForegroundColor Red
-                Write-Host "   => Ruta: $($Proceso.Path)" -ForegroundColor Red
+                Write-Host "[PELIGRO] $NombreProceso (PID: $($proc.ProcessId))" -ForegroundColor Red
+                Write-Host "   => Ruta: $RutaAAnalizar" -ForegroundColor Red
                 Write-Host "   => Detecciones: $Maliciosos / $Totales antivirus lo marcan como Hack/Malware!`n" -ForegroundColor Red
             } else {
-                Write-Host "[LIMPIO] $($Proceso.Name) -> 0/$Totales detecciones." -ForegroundColor Green
+                Write-Host "[LIMPIO] $NombreProceso -> 0/$Totales detecciones." -ForegroundColor Green
             }
         } else {
-            Write-Host "[?] $($Proceso.Name) -> Archivo desconocido para VirusTotal (Posible Hack Privado o archivo nuevo)." -ForegroundColor Yellow
+            Write-Host "[?] $NombreProceso -> Archivo desconocido para VirusTotal (Posible Hack Privado o recién renombrado)." -ForegroundColor Yellow
         }
         
-        # Pausa de 15 segundos para no saturar la API gratuita
         Start-Sleep -Seconds 15 
     } catch {
-        # Ignorar procesos protegidos que no se dejan leer
+        # Ignorar errores de permisos
     }
 }
 Write-Host "========================================================" -ForegroundColor DarkGray
-
 Write-Host "🕵️‍♂️ ESCANEO FINALIZADO." -ForegroundColor Cyan
