@@ -1,84 +1,88 @@
 Clear-Host
-
-$Banner = @"
- █████╗ ███╗   ██╗██████╗ ███████╗██╗   ██╗███████╗
-██╔══██╗████╗  ██║██╔══██╗██╔════╝██║   ██║██╔════╝
-███████║██╔██╗ ██║██║  ██║█████╗  ██║   ██║███████╗
-██╔══██║██║╚██╗██║██║  ██║██╔══╝  ██║   ██║╚════██║
-██║  ██║██║ ╚████║██████╔╝███████╗╚██████╔╝███████║
-╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝                                 
-                      
-  ▀▄▀▄▀▄▀▄▀▄▀▄  ☣︎ INFECTION ☣︎  ▀▄▀▄▀▄▀▄▀▄▀▄▀                   
-"@
-
 Write-Host "=========================================================" -ForegroundColor DarkGray
-Write-Host "🕵️‍♂️ ESCÁNER GLOBAL DE MODS Y HACKS INICIADO..." -ForegroundColor Cyan
-Write-Host "Consultando API de Modrinth y realizando autopsias internas." -ForegroundColor DarkGray
+Write-Host "🕵️‍♂️ ESCÁNER GLOBAL DE MODS (V3 - IDENTIFICADOR) INICIADO..." -ForegroundColor Cyan
+Write-Host "Consultando API de Modrinth y analizando firmas internas." -ForegroundColor DarkGray
 Write-Host "=========================================================`n" -ForegroundColor DarkGray
 
-# 1. Zonas de cacería (Lugares típicos donde esconden hacks)
-$Carpetas = @(
-    "$env:USERPROFILE\Desktop",
-    "$env:USERPROFILE\Downloads",
-    "$env:USERPROFILE\Documents"
-)
+$Carpetas = @("$env:USERPROFILE\Desktop", "$env:USERPROFILE\Downloads", "$env:USERPROFILE\Documents")
 
-# 2. Firmas internas de Hacks (Palabras clave que los hacks no pueden borrar)
-$PalabrasMaliciosas = @("doomsday", "vape", "koid", "manthe", "reach", "autoclicker", "raven", "b7", "kurumi", "client")
+# EL DICCIONARIO FORENSE: Asocia la carpeta interna con el nombre del Hack
+$DiccionarioHacks = @{
+    "doomsday" = "Doomsday Client"
+    "vape" = "Vape V4 / Lite"
+    "manthe" = "Vape Client (Firma de Manthe)"
+    "koid" = "Koid Injector"
+    "raven" = "Raven B+ / B4"
+    "b7" = "B7 Client"
+    "kurumi" = "Kurumi Client"
+    "autoclicker" = "Módulo de AutoClicker"
+    "reach" = "Módulo de Reach / Hitbox"
+}
 
-# Herramienta nativa para abrir JARs
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $HacksAtrapados = 0
 
 foreach ($Carpeta in $Carpetas) {
-    # Buscar todos los archivos .jar en estas carpetas
     $Archivos = Get-ChildItem -Path $Carpeta -Filter "*.jar" -Recurse -ErrorAction SilentlyContinue
 
     foreach ($Archivo in $Archivos) {
         try {
-            # Sacar la huella digital (Hash SHA1) que usa la API de Modrinth
-            $Hash = (Get-FileHash -Path $Archivo.FullName -Algorithm SHA1).Hash.ToLower()
-
-            # Consultar a la API de Modrinth
+            # 1. Consultar a la API de Modrinth
+            $Hash = (Get-FileHash -Path $Archivo.FullName -Algorithm SHA1 -ErrorAction Stop).Hash.ToLower()
             $Url = "https://api.modrinth.com/v2/version_file/$Hash?algorithm=sha1"
             $Respuesta = Invoke-RestMethod -Uri $Url -Method Get -ErrorAction SilentlyContinue
 
             if ($Respuesta) {
-                # Modrinth lo reconoce, es legal.
-                Write-Host "[LIMPIO] $($Archivo.Name) -> Mod oficial verificado por Modrinth." -ForegroundColor Green
+                Write-Host "[LIMPIO] $($Archivo.Name) -> Mod verificado por Modrinth." -ForegroundColor Green
             } else {
-                # Modrinth NO lo reconoce. Podría ser un mod de CurseForge, un mod privado... o un HACK.
-                Write-Host "[?] $($Archivo.Name) -> Archivo desconocido. Iniciando autopsia interna..." -ForegroundColor Yellow
+                Write-Host "[?] $($Archivo.Name) -> Desconocido. Analizando el interior..." -ForegroundColor Yellow
                 
-                $Zip = [System.IO.Compression.ZipFile]::OpenRead($Archivo.FullName)
-                $EsHack = $false
+                # 2. Copia Ninja para evitar bloqueos
+                $RutaTemp = "$env:TEMP\Analisis_$($Archivo.Name)"
+                Copy-Item -Path $Archivo.FullName -Destination $RutaTemp -Force -ErrorAction SilentlyContinue
+                
+                if (Test-Path $RutaTemp) {
+                    try {
+                        # Intentar abrir el archivo como ZIP
+                        $Zip = [System.IO.Compression.ZipFile]::OpenRead($RutaTemp)
+                        $HackDetectado = $null
+                        $Evidencia = ""
 
-                # Leer el interior del .jar
-                foreach ($Entrada in $Zip.Entries) {
-                    foreach ($Palabra in $PalabrasMaliciosas) {
-                        if ($Entrada.FullName.ToLower() -match $Palabra) {
-                            $HacksAtrapados++
-                            Write-Host "   [!] HACK DETECTADO: El archivo finge ser un mod legal." -ForegroundColor Red
-                            Write-Host "       => Ruta: $($Archivo.FullName)" -ForegroundColor Red
-                            Write-Host "       => Evidencia: Contiene el código sospechoso '$($Entrada.FullName)'`n" -ForegroundColor Red
-                            $EsHack = $true
-                            break
+                        # 3. Buscar firmas en el Diccionario
+                        foreach ($Entrada in $Zip.Entries) {
+                            foreach ($Firma in $DiccionarioHacks.Keys) {
+                                if ($Entrada.FullName.ToLower() -match $Firma) {
+                                    $HackDetectado = $DiccionarioHacks[$Firma]
+                                    $Evidencia = $Entrada.FullName
+                                    break
+                                }
+                            }
+                            if ($HackDetectado) { break }
                         }
-                    }
-                    if ($EsHack) { break }
-                }
-                
-                $Zip.Dispose() # Cerrar el archivo
+                        
+                        $Zip.Dispose() 
 
-                if (-not $EsHack) {
-                    Write-Host "   [i] Autopsia limpia. Parece un mod seguro no registrado en Modrinth.`n" -ForegroundColor DarkGray
+                        # 4. El Veredicto Detallado
+                        if ($HackDetectado) {
+                            $HacksAtrapados++
+                            Write-Host "   [!] ALERTA CRÍTICA: CLIENTE ILEGAL IDENTIFICADO" -ForegroundColor Red
+                            Write-Host "       => Nombre Falso: $($Archivo.Name)" -ForegroundColor DarkGray
+                            Write-Host "       => Hack Identificado: $HackDetectado" -ForegroundColor Magenta
+                            Write-Host "       => Evidencia Interna: Encontró la clase '$Evidencia'`n" -ForegroundColor Red
+                        } else {
+                            Write-Host "   [i] Autopsia limpia. Es un mod no registrado en Modrinth.`n" -ForegroundColor DarkGray
+                        }
+                    } catch {
+                        # Si falla aquí, es porque el archivo .jar está vacío, corrupto o es falso
+                        Write-Host "   [x] Archivo inválido o corrupto (No es un archivo Java real).`n" -ForegroundColor DarkRed
+                    } finally {
+                        # Siempre borrar la evidencia de la copia temporal
+                        if (Test-Path $RutaTemp) { Remove-Item -Path $RutaTemp -Force -ErrorAction SilentlyContinue }
+                    }
                 }
             }
-        } catch {
-            Write-Host "   [x] El archivo $($Archivo.Name) está bloqueado o en uso.`n" -ForegroundColor DarkRed
-        }
+        } catch {}
     }
 }
-
 Write-Host "=========================================================" -ForegroundColor DarkGray
-Write-Host "[i] Escaneo finalizado. $HacksAtrapados hacks camuflados encontrados." -ForegroundColor Cyan
+Write-Host "[i] Escaneo finalizado. $HacksAtrapados hacks identificados." -ForegroundColor Cyan
