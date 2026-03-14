@@ -1,88 +1,140 @@
+# ====================================================================
+# ESCÁNER FORENSE V9 - ANDEUS TOXIC (CAZADOR DE INYECTORES)
+# ====================================================================
+
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Clear-Host
-Write-Host "=========================================================" -ForegroundColor DarkGray
-Write-Host "🕵️‍♂️ ESCÁNER GLOBAL DE MODS (V3 - IDENTIFICADOR) INICIADO..." -ForegroundColor Cyan
-Write-Host "Consultando API de Modrinth y analizando firmas internas." -ForegroundColor DarkGray
-Write-Host "=========================================================`n" -ForegroundColor DarkGray
 
-$Carpetas = @("$env:USERPROFILE\Desktop", "$env:USERPROFILE\Downloads", "$env:USERPROFILE\Documents")
+$Banner = @"
+ █████╗ ███╗  ██╗██████╗ ███████╗██╗   ██╗███████╗
+██╔══██╗████╗  ██║██╔══██╗██╔════╝██║   ██║██╔════╝
+███████║██╔██╗ ██║██║  ██║█████╗  ██║   ██║███████╗
+██╔══██║██║╚██╗██║██║  ██║██╔══╝  ██║   ██║╚════██║
+██║  ██║██║ ╚████║██████╔╝███████╗╚██████╔╝███████║
+╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝                                 
+                      
+  ▀▄▀▄▀▄▀▄▀▄▀▄  ☣︎ INFECTION (ANTI-INJECTOR) ☣︎  ▀▄▀▄▀▄▀▄▀▄▀▄▀                   
+"@
 
-# EL DICCIONARIO FORENSE: Asocia la carpeta interna con el nombre del Hack
-$DiccionarioHacks = @{
-    "doomsday" = "Doomsday Client"
-    "vape" = "Vape V4 / Lite"
-    "manthe" = "Vape Client (Firma de Manthe)"
-    "koid" = "Koid Injector"
-    "raven" = "Raven B+ / B4"
-    "b7" = "B7 Client"
-    "kurumi" = "Kurumi Client"
-    "autoclicker" = "Módulo de AutoClicker"
-    "reach" = "Módulo de Reach / Hitbox"
-}
+Write-Host $Banner -ForegroundColor Green
+Write-Host "_____________________________________________________" -ForegroundColor DarkGreen
+Write-Host ""
+
+$Carpetas = @(
+    "$env:USERPROFILE\Desktop",
+    "$env:USERPROFILE\Downloads",
+    "$env:USERPROFILE\Documents",
+    "$env:USERPROFILE\Videos",
+    "$env:USERPROFILE\Pictures",
+    "$env:TEMP"
+)
+
+$Clientes = @("fapcraft", "doomsday", "asteria", "prestige", "xenon", "argon", "hellion", "grim client", "virgin", "donut", "dev.krypton", "dev.gambleclient", "raven", "bplus", "keystrokesmod", "liquidbounce", "net.ccbluex", "meteor client", "meteorclient", "wurst", "kamiblue", "impact client")
+$ModulosIlegales = @("aimassist", "autocrystal", "triggerbot", "shieldbreaker", "antiknockback", "flight", "autototem", "blockesp", "packspoof", "cheststeal", "autoclicker", "xray", "advanced xray", "attack through grass", "attackthroughgrass", "inventory profiles next", "inventoryprofilesnext", "freecam", "accurate block placement", "accurateblockplacement", "marlow crystal", "marlowcrystal", "macro", "reach")
+$PatronesOcultos = @("org.chainlibs", "keyboardmixin", "clientplayerinteractionmanagermixin", "phantom-refmap.json", "xyz.greaj", "jnativehook", "licensecheckmixin", "imgui", "imgui.gl3", "sub_classes")
+
+# ¡NUEVA BASE DE DATOS! Armas de los Inyectores Externos
+$FirmasInyectores = @("com/sun/tools/attach", "sun/tools/attach", "virtualmachine.class", "jna/win32", "agentmain", "premain", ".dll")
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$HacksAtrapados = 0
+$hacksEncontrados = 0
 
 foreach ($Carpeta in $Carpetas) {
-    $Archivos = Get-ChildItem -Path $Carpeta -Filter "*.jar" -Recurse -ErrorAction SilentlyContinue
+    if (-not (Test-Path $Carpeta)) { continue }
+    Write-Host "Escaneando directorio: $Carpeta`n" -ForegroundColor Yellow
 
-    foreach ($Archivo in $Archivos) {
+    $archivos = Get-ChildItem -Path $Carpeta -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Length -lt 150MB -and $_.Extension -ne ".lnk" }
+
+    foreach ($archivo in $archivos) {
+        $RutaDeLectura = $archivo.FullName
+        $CopiaForense = $false
+
+        try { $hash = (Get-FileHash $RutaDeLectura -Algorithm SHA1 -ErrorAction Stop).Hash.ToLower() } 
+        catch {
+            $RutaTemp = "$env:TEMP\Forense_$($archivo.Name)"
+            Copy-Item -Path $RutaDeLectura -Destination $RutaTemp -Force -ErrorAction SilentlyContinue
+            $RutaDeLectura = $RutaTemp
+            $CopiaForense = $true
+            try { $hash = (Get-FileHash $RutaDeLectura -Algorithm SHA1 -ErrorAction Stop).Hash.ToLower() } catch { continue }
+        }
+
         try {
-            # 1. Consultar a la API de Modrinth
-            $Hash = (Get-FileHash -Path $Archivo.FullName -Algorithm SHA1 -ErrorAction Stop).Hash.ToLower()
-            $Url = "https://api.modrinth.com/v2/version_file/$Hash?algorithm=sha1"
-            $Respuesta = Invoke-RestMethod -Uri $Url -Method Get -ErrorAction SilentlyContinue
-
-            if ($Respuesta) {
-                Write-Host "[LIMPIO] $($Archivo.Name) -> Mod verificado por Modrinth." -ForegroundColor Green
-            } else {
-                Write-Host "[?] $($Archivo.Name) -> Desconocido. Analizando el interior..." -ForegroundColor Yellow
-                
-                # 2. Copia Ninja para evitar bloqueos
-                $RutaTemp = "$env:TEMP\Analisis_$($Archivo.Name)"
-                Copy-Item -Path $Archivo.FullName -Destination $RutaTemp -Force -ErrorAction SilentlyContinue
-                
-                if (Test-Path $RutaTemp) {
-                    try {
-                        # Intentar abrir el archivo como ZIP
-                        $Zip = [System.IO.Compression.ZipFile]::OpenRead($RutaTemp)
-                        $HackDetectado = $null
-                        $Evidencia = ""
-
-                        # 3. Buscar firmas en el Diccionario
-                        foreach ($Entrada in $Zip.Entries) {
-                            foreach ($Firma in $DiccionarioHacks.Keys) {
-                                if ($Entrada.FullName.ToLower() -match $Firma) {
-                                    $HackDetectado = $DiccionarioHacks[$Firma]
-                                    $Evidencia = $Entrada.FullName
-                                    break
-                                }
-                            }
-                            if ($HackDetectado) { break }
-                        }
-                        
-                        $Zip.Dispose() 
-
-                        # 4. El Veredicto Detallado
-                        if ($HackDetectado) {
-                            $HacksAtrapados++
-                            Write-Host "   [!] ALERTA CRÍTICA: CLIENTE ILEGAL IDENTIFICADO" -ForegroundColor Red
-                            Write-Host "       => Nombre Falso: $($Archivo.Name)" -ForegroundColor DarkGray
-                            Write-Host "       => Hack Identificado: $HackDetectado" -ForegroundColor Magenta
-                            Write-Host "       => Evidencia Interna: Encontró la clase '$Evidencia'`n" -ForegroundColor Red
-                        } else {
-                            Write-Host "   [i] Autopsia limpia. Es un mod no registrado en Modrinth.`n" -ForegroundColor DarkGray
-                        }
-                    } catch {
-                        # Si falla aquí, es porque el archivo .jar está vacío, corrupto o es falso
-                        Write-Host "   [x] Archivo inválido o corrupto (No es un archivo Java real).`n" -ForegroundColor DarkRed
-                    } finally {
-                        # Siempre borrar la evidencia de la copia temporal
-                        if (Test-Path $RutaTemp) { Remove-Item -Path $RutaTemp -Force -ErrorAction SilentlyContinue }
-                    }
-                }
+            $Bytes = Get-Content -Path $RutaDeLectura -Encoding Byte -TotalCount 2 -ErrorAction Stop
+            $Hex = [System.BitConverter]::ToString($Bytes)
+            if ($Hex -ne "50-4B") { 
+                if ($CopiaForense) { Remove-Item -Path $RutaDeLectura -Force -ErrorAction SilentlyContinue }
+                continue 
             }
-        } catch {}
+        } catch { continue }
+
+        Write-Host "Analizando: [$($archivo.Name)]" -ForegroundColor Gray
+        Write-Host "   [ID]: $hash" -ForegroundColor DarkGray
+        $esVerificado = $false
+
+        try {
+            $respModrinth = Invoke-RestMethod -Uri "https://api.modrinth.com/v2/version_file/$hash" -Method Get -ErrorAction Stop
+            Write-Host "   >> VEREDICTO: ✅ SEGURO (Validado por Modrinth API)" -ForegroundColor Cyan
+            $esVerificado = $true
+        } catch {
+            try {
+                $respMegabase = Invoke-RestMethod -Uri "https://megabase.vercel.app/api/query?hash=$hash" -Method Get -ErrorAction Stop
+                if ($respMegabase -and $respMegabase.name) {
+                    Write-Host "   >> VEREDICTO: ✅ SEGURO (Validado por Megabase API)" -ForegroundColor Cyan
+                    $esVerificado = $true
+                }
+            } catch { }
+        }
+
+        if (-not $esVerificado) {
+            Write-Host "   [i] Archivo Desconocido. Escaneando interior..." -ForegroundColor DarkYellow
+            $esHack = $false
+            $motivo = ""
+
+            # MOTOR A: Estructura Interna (Atrapa a Doomsday Inyector y Mods)
+            try {
+                $Zip = [System.IO.Compression.ZipFile]::OpenRead($RutaDeLectura)
+                foreach ($Entrada in $Zip.Entries) {
+                    $RutaInterna = $Entrada.FullName.ToLower()
+                    
+                    # Caza de Inyectores (El secreto)
+                    foreach ($arma in $FirmasInyectores) { if ($RutaInterna -match $arma) { $esHack = $true; $motivo += "ArmaInyector:$arma " } }
+                    
+                    foreach ($firma in $Clientes) { if ($RutaInterna -match $firma) { $esHack = $true; $motivo += "Carpeta:$firma " } }
+                    foreach ($modulo in $ModulosIlegales) { if ($RutaInterna -match $modulo) { $esHack = $true; $motivo += "Clase:$modulo " } }
+                    if ($esHack) { break }
+                }
+                $Zip.Dispose()
+            } catch { }
+
+            # MOTOR B: Fuerza Bruta de Texto
+            if (-not $esHack) {
+                try {
+                    $contenido = [System.IO.File]::ReadAllText($RutaDeLectura, [System.Text.Encoding]::ASCII).ToLower()
+                    if ($contenido -match "jnativehook" -and $archivo.Name -match "voicechat") {
+                        Write-Host "   [i] Excepción aplicada: Mod de VoiceChat detectado." -ForegroundColor DarkCyan
+                    } else {
+                        foreach ($arma in $FirmasInyectores) { if ($contenido -match $arma) { $esHack = $true; $motivo += "ArmaTxt:$arma " } }
+                        foreach ($firma in $Clientes) { if ($contenido -match $firma) { $esHack = $true; $motivo += "FirmaTxt:$firma " } }
+                        foreach ($modulo in $ModulosIlegales) { if ($contenido -match $modulo) { $esHack = $true; $motivo += "ModTxt:$modulo " } }
+                        foreach ($patron in $PatronesOcultos) { if ($contenido -match $patron) { $esHack = $true; $motivo += "MixinTxt:$patron " } }
+                    }
+                } catch { }
+            }
+
+            if ($esHack) {
+                $hacksEncontrados++
+                Write-Host "   >> VEREDICTO: ❌ HACK DETECTADO ($motivo)" -ForegroundColor Red
+                Write-Host "      Ubicación: $($archivo.FullName)" -ForegroundColor Red
+            } else {
+                Write-Host "   >> VEREDICTO: ⚠️ MODIFICADO / DESCONOCIDO (Revisar manual)" -ForegroundColor Yellow
+                Write-Host "      Ubicación: $($archivo.FullName)" -ForegroundColor DarkGray
+            }
+        }
+        
+        if ($CopiaForense -and (Test-Path $RutaDeLectura)) { Remove-Item -Path $RutaDeLectura -Force -ErrorAction SilentlyContinue }
+        Write-Host ""
     }
 }
-Write-Host "=========================================================" -ForegroundColor DarkGray
-Write-Host "[i] Escaneo finalizado. $HacksAtrapados hacks identificados." -ForegroundColor Cyan
+
+Write-Host "======================================================" -ForegroundColor DarkGreen
+Write-Host "Resumen: Se encontraron $hacksEncontrados archivos ilegales." -ForegroundColor Yellow
